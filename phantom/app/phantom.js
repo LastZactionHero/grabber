@@ -32,7 +32,7 @@
           request_type: 'value_grab',
           url: <string>,
           status: 'success/fail',
-          value: [
+          values: [
             {
               href: '<string> (optional)',
               src: '<string> (optional)',
@@ -50,44 +50,48 @@ const phantom = require('phantom');
 const crypto = require('crypto');
 const fs = require('fs')
 
+const USER_AGENT = 'Mozilla/5.0 (Linux; GoogleTV 4.0.4; LG Google TV Build/000000) AppleWebKit/534.24 (KHTML, like Gecko) Chrome/11.0.696.77 Safari/534.24';
+
+const Logger = {
+  log: (level, message) => {
+    console.log(`${level}: ${message}`);
+  }
+}
+
 const amqp = require('amqplib/callback_api');
 amqp.connect('amqp://messaging', (err, conn) => {
-
   // Connect to the inbound request queue
   conn.createChannel( (err, channel) => {
+    // Create request and response queues
     const requestQueueName = 'phantom_request';
     const responseQueueName = 'phantom_response';
-
     channel.assertQueue(requestQueueName, {durable: false});
     channel.assertQueue(responseQueueName, {durable: false});
-    console.log("Waiting for requests");
 
+    Logger.log('INFO', 'Waiting for requests');
     channel.consume(requestQueueName, (msg) => {
-      
       const message = JSON.parse(msg.content.toString());
+      Logger.log('INFO', 'Request received');
+      Logger.log('INFO', msg.content.toString());
+
+      // Generic callback for responding to a request
+      const responseCallback = (grab) => {
+        var response = baseResponse(message);
+        Object.assign(response, grab);
+        channel.sendToQueue(responseQueueName, new Buffer(JSON.stringify(response)));
+      }
 
       switch(message.request_type) {
         case 'initial_grab':
-          initialPageGrab(message.url, (grab) => {
-            grab.request_token = message.request_token;
-            grab.request_type = message.request_type;
-            grab.url = message.url;
-            console.log("REsponding with: ")
-            console.log(JSON.stringify(grab));
-            channel.sendToQueue(responseQueueName, new Buffer(JSON.stringify(grab)));
-            console.log("Done!")
-          });
+          Logger.log('INFO', 'initial_grab');
+          initialPageGrab(message.url, responseCallback);
           break;
         case 'value_grab':
-          valueGrab(message.url, message.selector_path, (grab) => {
-            grab.request_token = message.request_token;
-            grab.request_type = message.request_type;
-            grab.url = message.url;
-            channel.sendToQueue(responseQueueName, new Buffer(JSON.stringify(grab)));
-          });
+          Logger.log('INFO', 'value_grab');
+          valueGrab(message.url, message.selector_path, responseCallback);
           break;
         default:
-          // TODO: Error handling
+          Logger.log('ERROR', `Unknown request_type: ${message.request_type}`);
           break;
       }
       
@@ -95,26 +99,31 @@ amqp.connect('amqp://messaging', (err, conn) => {
   });
 });
 
-function valueGrab(url, selectorPath, completeCallback) {
-  console.log('valueGrab');
-  console.log(url);
-  console.log(selectorPath);
+// Basic details delivered in every response
+function baseResponse(message) {
+  return {
+    request_token: message.request_token,
+    request_type: message.request_type,
+    url: message.url
+  }
+}
 
-    (async function() {
+// Grab a value from site given a known selector
+function valueGrab(url, selectorPath, completeCallback) {
+  (async function() {
     const instance = await phantom.create();
     const page = await instance.createPage();
-    // await page.on("onResourceRequested", function(requestData) {});
-
-    const status = await page.open(url);
-    let grabContent = null;
-    let screenshotPath = null;
-
-    await page.defineMethod('selectorPath', function() {
-      return selectorPath;
-    });
+    page.setting('userAgent', USER_AGENT)
+  
+    const response = {
+      status: await page.open(url),
+      values: null
+    }
 
     await page.evaluate( function(selectorPath) {
-      // Select with selector strings
+      // Run on page in Phantom: no access to ES6 in this block
+
+      // Find matching elements by the selectorPath
       var queryStack = [document];
       while(p = selectorPath.pop()) {
         var nextQueryStack = [];
@@ -127,6 +136,7 @@ function valueGrab(url, selectorPath, completeCallback) {
         queryStack = nextQueryStack;
       }
 
+      // Collect values for matching elements
       var values = [];
       for(var i = 0; i < queryStack.length; i++) {
         var element = queryStack[i];
@@ -137,33 +147,34 @@ function valueGrab(url, selectorPath, completeCallback) {
         values.push(value);
       }
       return values;
-    }, selectorPath).then( (_grabContent) => {
-      grabContent = _grabContent;
+    }, selectorPath).then( (_values) => {
+      response.values = _values;
     });
 
     await instance.exit();
 
-    completeCallback({
-      status: status,
-      value: grabContent
-    });
+    Logger.log('INFO', `value_grab complete, status: ${response.status}`);
+    completeCallback(response);
   }());
 
 }
 
+// Grab all site content for creating a new selector
 function initialPageGrab(url, completeCallback) {
   (async function() {
     const instance = await phantom.create();
     const page = await instance.createPage();
-    // await page.on("onResourceRequested", function(requestData) {});
-    page.setting('userAgent', 'Mozilla/5.0 (Linux; GoogleTV 4.0.4; LG Google TV Build/000000) AppleWebKit/534.24 (KHTML, like Gecko) Chrome/11.0.696.77 Safari/534.24')
-    const status = await page.open(url);
-    console.log(status)
+    page.setting('userAgent', USER_AGENT)
+
+    const response = {
+      status: await page.open(url),
+      content: null,
+      screenshot: null
+    };
 
     let grabContent = null;
-    let screenshotPath = null;
-
     await page.evaluate( function() {
+      // Run on page in Phantom: no access to ES6 in this block
       var baseElements = {};
 
       var globalElementSelectorPath = function(element) {
@@ -222,40 +233,35 @@ function initialPageGrab(url, completeCallback) {
       accumulateBaseElements(document.body);
       
       return baseElements;
-    }).then( (_grabContent) => {
-      grabContent = _grabContent;
+    }).then( (_content) => {
+      grabContent = _content;
     });
 
-    var selectorContent = []
+    // Map from hash with unique keys to array
+    response.content = []
     for (var selectorUniquenessKey in grabContent) {
       if (grabContent.hasOwnProperty(selectorUniquenessKey)) {
-        selectorContent.push(grabContent[selectorUniquenessKey]);
+        response.content.push(grabContent[selectorUniquenessKey]);
       }
     }
 
+    // Take a screenshot
     const screenshotHashKey = `${Date.now()}_${url}`;
     const screenshotHash = crypto.createHash('sha256');
     screenshotHash.update(screenshotHashKey);
     const screnshotHashValue = screenshotHash.digest('hex');
-    screenshotPath = `initial_grab_${screnshotHashValue}.png`;
+    const screenshotPath = `initial_grab_${screnshotHashValue}.png`;
     await page.render(screenshotPath);
 
     const screenshotFileBuffer = fs.readFileSync(screenshotPath);
-    const screenshotBase64 = screenshotFileBuffer.toString('base64');
+    // response.screenshot = screenshotFileBuffer.toString('base64');
     fs.unlinkSync(screenshotPath);
 
     await instance.exit();
 
-    console.log(selectorContent);
-
-    completeCallback({
-      status: status,
-      content: selectorContent
-      // screenshot: screenshotBase64
-    });
+    Logger.log('INFO', `initial_grab complete, status: ${response.status}`);
+    completeCallback(response);
   }());
-
-  
 }
 
 
