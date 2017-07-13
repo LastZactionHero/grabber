@@ -1,3 +1,51 @@
+/* 
+  Scrape web content with Phantom JS
+
+  This script has two operations:
+  - Initial Grab: pulls all content for a website, formatted as selectors for querying later
+      Inbound Message: {
+          request_token: <string>, 
+          request_type: 'initial_grab', 
+          url: <string>
+        }
+      Outbound Message: {
+          request_token: <string>
+          request_type: 'initial_grab',
+          status: 'success/fail',
+          content: [
+            {
+              selector_path: ['<string>', '<string>', '<string>'],
+              text: ['<string>', '<string>', '<string>']
+            }
+          ]
+          screenshot: <string base64 encoded png>
+        }
+  - Value Grab: get the current value of a website element from a known selector
+      Inbound Message: {
+          request_token: <string>,
+          request_type: 'value_grab',
+          url: <string>,
+          selector_path: ['<string>', '<string>', ...]
+        }
+      Outbound Message: {
+          request_token: <string>,
+          request_type: 'value_grab',
+          url: <string>,
+          status: 'success/fail',
+          value: [
+            {
+              href: '<string> (optional)',
+              src: '<string> (optional)',
+              text: '<string>'
+            }
+          ]
+        }
+
+  RabbitMQ Channels:
+  - phantom_request: Inbound requests for scraping
+  - phantom_response: Outbound responses with scraping data
+
+*/
 const phantom = require('phantom');
 const crypto = require('crypto');
 const fs = require('fs')
@@ -23,6 +71,7 @@ amqp.connect('amqp://messaging', (err, conn) => {
           initialPageGrab(message.url, (grab) => {
             grab.request_token = message.request_token;
             grab.request_type = message.request_type;
+            grab.url = message.url;
             console.log("REsponding with: ")
             console.log(JSON.stringify(grab));
             channel.sendToQueue(responseQueueName, new Buffer(JSON.stringify(grab)));
@@ -33,6 +82,7 @@ amqp.connect('amqp://messaging', (err, conn) => {
           valueGrab(message.url, message.selector_path, (grab) => {
             grab.request_token = message.request_token;
             grab.request_type = message.request_type;
+            grab.url = message.url;
             channel.sendToQueue(responseQueueName, new Buffer(JSON.stringify(grab)));
           });
           break;
@@ -200,7 +250,7 @@ function initialPageGrab(url, completeCallback) {
 
     completeCallback({
       status: status,
-      grab_content: selectorContent
+      content: selectorContent
       // screenshot: screenshotBase64
     });
   }());

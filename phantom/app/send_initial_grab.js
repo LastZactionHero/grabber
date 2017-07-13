@@ -14,7 +14,7 @@ amqp.connect('amqp://messaging', function(err, conn) {
       var message = JSON.parse(msg.content.toString());
 
       console.log(message)
-      message.grab_content.forEach( (selectorContent) => {
+      message.content.forEach( (selectorContent) => {
         console.log(selectorContent.selector_path)
         console.log(selectorContent.text)
       });
