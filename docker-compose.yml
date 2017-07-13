@@ -1,0 +1,22 @@
+version: '2'
+services:
+  db:
+    image: postgres
+    volumes:
+      - grabber_data:/var/lib/postgresql/data
+  messaging:
+    image: rabbitmq
+    command: rabbitmq-server --hostname messaging --name some-rabbit rabbitmq:3
+    ports:
+      - "10000:15672"   # Management
+      - "10001:8080"    # Management ext (?)
+      - "5672:5672"     # Messaging
+  phantom:
+    build: ./phantom
+    command: node /app/phantom.js
+    volumes:
+      - ./phantom/app:/app
+    depends_on:
+      - messaging
+volumes:
+  grabber_data:
