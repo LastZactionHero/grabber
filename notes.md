@@ -100,9 +100,9 @@ User
     - X Input: (string) URL
     - X Output: (json) Selector strings with content and image blob
   - Value Grab
-    - Input: (string) URL
-             (json) Selector strings
-    - Output: (json) Values, Response Status
+    - X Input: (string) URL
+               (json) Selector strings
+    - X Output: (json) Values, Response Status
 - Scheduler
   - Makes periodic requests based on request durations
     - Input: (database)
