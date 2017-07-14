@@ -18,5 +18,12 @@ services:
       - ./phantom/app:/app
     depends_on:
       - messaging
+  api:
+    build: ./api
+    command: echo Hello World!
+    volumes:
+      - ./api/app:/app
+    depends_on:
+      - phantom
 volumes:
   grabber_data:

@@ -112,6 +112,18 @@ User
     - Input: (database)
     - Output: Webhooks
 - API
+    - Initial Grab
+      - GET /grab/initial
+    - Value Grab
+      - GET /grab/value
+    - Create Grab
+      - POST /grab
+    - Show Grab
+      - GET /grab/:token
+    - Delete Grab
+      - DELETE /grab/:token
+    - Run Grab
+      - GET /grab/:token/run
 - Front
 
 
