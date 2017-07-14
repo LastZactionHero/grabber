@@ -20,9 +20,11 @@ services:
       - messaging
   api:
     build: ./api
-    command: echo Hello World!
+    command: app
+    ports:
+      - "3000:3000"   # Web Server
     volumes:
-      - ./api/app:/app
+      - ./api/app:/go/src/app
     depends_on:
       - phantom
 volumes:
