@@ -5,6 +5,8 @@ RUN apt-get update -qq
 RUN mkdir /app
 
 ADD . /app
+WORKDIR /app
+RUN npm install
 
 WORKDIR /root
 COPY ./app/phantomjs-2.1.1-linux-x86_64.tar.bz2 phantomjs-2.1.1-linux-x86_64.tar.bz2
