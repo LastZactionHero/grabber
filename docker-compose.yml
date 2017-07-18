@@ -27,5 +27,6 @@ services:
       - ./api/app:/go/src/app
     depends_on:
       - phantom
+      - messaging
 volumes:
   grabber_data:
